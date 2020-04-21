@@ -1,1 +1,1 @@
-worker: python city_bot.py
+web: python city_bot.py
