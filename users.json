@@ -4,5 +4,11 @@
     "UsedCities": [],
     "LastLetter": [],
     "Disappointed": "no"
+  },
+  "179204386": {
+    "IsGameStarted": false, 
+    "UsedCities": [], 
+    "LastLetter": [], 
+    "Disappointed": "no"
   }
 }
