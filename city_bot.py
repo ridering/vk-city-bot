@@ -1,17 +1,21 @@
-import os
-
-import vk_api
-from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
-from vk_api.keyboard import VkKeyboard, VkKeyboardColor
-from email.message import EmailMessage
-import smtplib
-import random
 import json
+import os
+# from email.message import EmailMessage
+# import smtplib
+import random
 import re
 
+import vk_api
 from dotenv import load_dotenv
+from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
+from vk_api.keyboard import VkKeyboard, VkKeyboardColor
+
+from citybot_by_rid.core.utils import fullname
+from citybot_by_rid.db.data import db_session
+from citybot_by_rid.db.services import user_service, game_service
 
 load_dotenv()
+db_session.global_init(fullname('db/city_bot.db'))
 
 
 def make_city(city):
@@ -78,11 +82,11 @@ def check_ending(city: str):
 #             name = path.split("\\")[-1]
 #
 #             msg.add_attachment(data, filename=name)
-#             smtpserver = smtplib.SMTP("smtp.gmail.com", 465)
+#             smtpserver = smtplib.SMTP("mySMTP.server.com")
 #             smtpserver.ehlo()
 #             smtpserver.starttls()
 #             smtpserver.ehlo()
-#             smtpserver.login('vkcitybot@gmail.com', 'asdfSS123')
+#             smtpserver.login(email, password)
 #             smtpserver.send_message(msg)
 
 
@@ -93,8 +97,6 @@ def main():
         my_cities = json.load(all_cities)
     with open('rules.txt', encoding='UTF-8', mode='r') as rules:
         rules = ''.join(rules.readlines())
-    with open('users.json', encoding='UTF-8', mode='r') as data_to_read:
-        data = json.load(data_to_read)
     with open('phrases.json', encoding='UTF-8', mode='r') as templates:
         phrases = json.load(templates)
 
@@ -107,7 +109,7 @@ def main():
     start_keyboard.add_button('Правила', color=VkKeyboardColor.DEFAULT)
 
     stop_keyboard = VkKeyboard(one_time=True)
-    stop_keyboard.add_button('Сдаться', color=VkKeyboardColor.NEGATIVE)
+    stop_keyboard.add_button('Закончить', color=VkKeyboardColor.NEGATIVE)
     stop_keyboard.add_button('Правила', color=VkKeyboardColor.DEFAULT)
     stop_keyboard.add_button('Ошибка?', color=VkKeyboardColor.DEFAULT)
 
@@ -128,57 +130,69 @@ def main():
             # print('Новое сообщение:')
             # print('Для меня от:', event.obj.message['from_id'])
             # print('Текст:', event.obj.message['text'])
-            if user not in data:
-                data[user] = {'IsGameStarted': False, 'UsedCities': [], "LastLetter": [],
-                              "Disappointed": False}
+            if not user_service.get_user(user_id):
+                user_service.add_user(user_id)
+                user = user_service.get_user(user_id)
+                game_service.create_game(user.id)
                 at_first = True
 
-            game = data[user]
+            game = game_service.load_game(user_id)
+            if game.used_cities:
+                game.used_cities = game.used_cities.split(', ')
+            else:
+                game.used_cities = []
 
-            if game['Disappointed'] != 'no':
-                if game['Disappointed'] == 'yes':
+            if game.last_letter:
+                game.last_letter = game.last_letter.split(', ')
+            else:
+                game.last_letter = []
+
+            if game.disappointed != 'no':
+                if game.disappointed == 'yes':
                     if 'да' in message.lower():
-                        game['Disappointed'] = 'very'
+                        game.disappointed = 'very'
                         vk.messages.send(user_id=user_id,
                                          message=random.choice(phrases["listen"]),
                                          random_id=random.randint(0, 2 ** 64))
                     else:
-                        game['Disappointed'] = 'no'
+                        game.disappointed = 'no'
                         vk.messages.send(user_id=user_id,
                                          message=random.choice(phrases["errors"]["short"]),
                                          random_id=random.randint(0, 2 ** 64))
                         vk.messages.send(user_id=user_id,
-                                         message=f'''
-                                         {random.choice(phrases["letter"])}
-                                         P.S. Вам на {"/".join(game["LastLetter"])}
-                                         ''',
+                                         message=f'{random.choice(phrases["letter"])}'
+                                                 f'\nP.S. Вам на {"/".join(game.last_letter)}',
                                          random_id=random.randint(0, 2 ** 64),
                                          keyboard=stop_keyboard.get_keyboard())
                         vk.messages.send(user_id=168831681,
-                                         message="Ошибка:\n\n{}\n\n{}\n\nКомментарий пользователя отсутствует".format(
-                                             {user: game}, data),
+                                         message="Ошибка:\n{}\nКомментарий пользователя отсутствует".format(
+                                             {user_id: [
+                                                 game.used_cities,
+                                                 game.last_letter
+                                             ]}),
                                          random_id=random.randint(0, 2 ** 64))
 
-                elif game['Disappointed'] == 'very':
-                    game['Disappointed'] = 'no'
+                elif game.disappointed == 'very':
+                    game.disappointed = 'no'
                     vk.messages.send(user_id=user_id,
                                      message=random.choice(phrases["errors"]["long"]),
                                      random_id=random.randint(0, 2 ** 64))
                     vk.messages.send(user_id=user_id,
-                                     message=f'''
-                                     {random.choice(phrases["letter"])}
-                                     P.S. Вам на {"/".join(game["LastLetter"])}
-                                     ''',
+                                     message=f'{random.choice(phrases["letter"])}'
+                                             f'\nP.S. Вам на {"/".join(game.last_letter)}',
                                      random_id=random.randint(0, 2 ** 64),
                                      keyboard=stop_keyboard.get_keyboard())
                     vk.messages.send(user_id=168831681,
-                                     message="Ошибка:\n\n{}\n\n{}\n\nКомментарий пользователя:\n\n{}".format(
-                                         {user: game}, data, message),
+                                     message="Ошибка:\n{}\n\nКомментарий пользователя:\n{}".format(
+                                         {user_id: [
+                                             game.used_cities,
+                                             game.last_letter
+                                         ]}, message),
                                      random_id=random.randint(0, 2 ** 64),
                                      keyboard=stop_keyboard.get_keyboard())
 
             elif message.lower() == 'начать':
-                if not game["IsGameStarted"]:
+                if not game.is_game_started:
                     if at_first:
                         vk.messages.send(user_id=user_id,
                                          message=random.choice(phrases["rejoin"]),
@@ -187,13 +201,13 @@ def main():
                     my_city = random.choice(my_cities[random.choice(letters)])
                     last_letter = list(check_ending(my_city))
 
-                    game["IsGameStarted"] = True
-                    game["UsedCities"].append(my_city.lower())
-                    game["LastLetter"] = last_letter
+                    game.is_game_started = True
+                    game.used_cities.append(my_city.lower())
+                    game.last_letter = last_letter
 
                     curr_keyboard = stop_keyboard
                     vk.messages.send(user_id=user_id,
-                                     message=f'{my_city} — Вам на {"/".join(game["LastLetter"])}',
+                                     message=f'{my_city} — Вам на {"/".join(game.last_letter)}',
                                      random_id=random.randint(0, 2 ** 64),
                                      keyboard=curr_keyboard.get_keyboard())
                 else:
@@ -202,18 +216,18 @@ def main():
                                      random_id=random.randint(0, 2 ** 64),
                                      keyboard=curr_keyboard.get_keyboard())
 
-            elif message.lower() == 'сдаться':
-                if game["IsGameStarted"]:
+            elif message.lower() == 'закончить':
+                if game.is_game_started:
                     curr_keyboard = start_keyboard
                     vk.messages.send(user_id=user_id,
-                                     message=f'''
-                                     {random.choice(phrases["loose"])}
-                                     Вы назвали {len(game["UsedCities"]) // 2} городов
-                                     ''',
+                                     message=f'{random.choice(phrases["loose"])}\nВы назвали '
+                                             f'{len(game.used_cities) // 2} городов',
                                      random_id=random.randint(0, 2 ** 64),
                                      keyboard=curr_keyboard.get_keyboard())
-                    game = {'IsGameStarted': False, 'UsedCities': [], "LastLetter": [],
-                            "Disappointed": "no"}
+                    game.is_game_started = False
+                    game.used_cities = []
+                    game.last_letter = []
+                    game.disappointed = 'no'
                 else:
                     vk.messages.send(user_id=user_id,
                                      message=random.choice(phrases["not_yet"]),
@@ -227,48 +241,47 @@ def main():
                                  keyboard=curr_keyboard.get_keyboard())
 
             elif 'ошибка' in message.lower():
-                game['Disappointed'] = "yes"
+                game.disappointed = "yes"
                 vk.messages.send(user_id=user_id,
-                                 message='''
-                                 Разработчик получит уведомление об ошибке
-                                 Желаете отправить сообщение для наилучшего понимания проблемы и её скорейшего решения?
-                                 ''',
+                                 message='Разработчик получит уведомление об ошибке\n'
+                                         'Желаете отправить сообщение для наилучшего понимания проблемы и '
+                                         'её скорейшего решения?',
                                  random_id=random.randint(0, 2 ** 64),
                                  keyboard=yes_no_keyboard.get_keyboard())
 
             else:
-                if game["IsGameStarted"]:
+                if game.is_game_started:
                     curr_keyboard = stop_keyboard
                     message = message.lower()
-                    if message[0].upper() in game["LastLetter"]:
+                    if message[0].upper() in game.last_letter:
                         if check_city(city=message, cities=my_cities[message[0].upper()]):
-                            if check_city(city=message, cities=game["UsedCities"], inv=True):
+                            if check_city(city=message, cities=game.used_cities, inv=True):
 
-                                game["UsedCities"].append(message)
+                                game.used_cities.append(message)
                                 last_letter = list(check_ending(message))
                                 my_city = get_city(my_cities[random.choice(last_letter)],
-                                                   game["UsedCities"])
+                                                   game.used_cities)
                                 if my_city:
                                     last_letter = list(check_ending(my_city))
 
-                                    game["UsedCities"].append(my_city.lower())
-                                    game["LastLetter"] = last_letter
+                                    game.used_cities.append(my_city.lower())
+                                    game.last_letter = last_letter
                                     vk.messages.send(user_id=user_id,
-                                                     message=f'{my_city} — Вам на {"/".join(game["LastLetter"])}',
+                                                     message=f'{my_city} — Вам на {"/".join(game.last_letter)}',
                                                      random_id=random.randint(0, 2 ** 64),
                                                      keyboard=curr_keyboard.get_keyboard())
                                 else:
                                     curr_keyboard = start_keyboard
                                     vk.messages.send(user_id=user_id,
-                                                     message=f'''
-                                                     {random.choice(phrases["endgame"])}
-                                                     {len(game["UsedCities"]) // 2} названных Вами городов — это достойно
-                                                     Спасибо за игру!
-                                                     ''',
+                                                     message=f'{random.choice(phrases["endgame"])}\n'
+                                                             f'{len(game.used_cities) // 2} названных Вами городов — '
+                                                             f'это очень достойно',
                                                      random_id=random.randint(0, 2 ** 64),
                                                      keyboard=curr_keyboard.get_keyboard())
-                                    game = {'IsGameStarted': False, 'UsedCities': [],
-                                            "LastLetter": [], "Disappointed": "no"}
+                                    game.is_game_started = False
+                                    game.used_cities = []
+                                    game.last_letter = []
+                                    game.disappointed = 'no'
 
                             else:
                                 vk.messages.send(user_id=user_id,
@@ -277,16 +290,14 @@ def main():
                                                  keyboard=curr_keyboard.get_keyboard())
                         else:
                             vk.messages.send(user_id=user_id,
-                                             message=f'''
-                                             {random.choice(phrases["correct"])}
-                                             Проверьте правильность написания и актуальность названия
-                                             И не забывайте: только кириллица, дефис (-) и пробел
-                                             ''',
+                                             message=f'{random.choice(phrases["correct"])}\n\nПроверьте правильность '
+                                                     f'написания и актуальность названия\nИ не забывайте: только '
+                                                     f'кириллица, дефис (-) и пробел',
                                              random_id=random.randint(0, 2 ** 64),
                                              keyboard=curr_keyboard.get_keyboard())
                     else:
                         vk.messages.send(user_id=user_id,
-                                         message=f'Ну вообще-то вам на {"/".join(game["LastLetter"])}',
+                                         message=f'Ну вообще-то вам на {"/".join(game.last_letter)}',
                                          random_id=random.randint(0, 2 ** 64),
                                          keyboard=curr_keyboard.get_keyboard())
                 else:
@@ -295,9 +306,9 @@ def main():
                                      random_id=random.randint(0, 2 ** 64),
                                      keyboard=curr_keyboard.get_keyboard())
 
-            data[user] = game
-            with open('users.json', encoding='UTF-8', mode='w') as users:
-                json.dump(data, fp=users, ensure_ascii=False, indent=2)
+            game.used_cities = ', '.join(game.used_cities)
+            game.last_letter = ', '.join(game.last_letter)
+            game_service.save_game(game.id, game)
 
 
 if __name__ == '__main__':
