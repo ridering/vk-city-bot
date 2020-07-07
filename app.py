@@ -93,11 +93,11 @@ def check_ending(city: str):
 def main():
     letters = list('АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЫЭЮЯ')
 
-    with open('cities.json', encoding='UTF-8', mode='r') as all_cities:
+    with open('citybot_by_rid/static/json/cities.json', encoding='UTF-8', mode='r') as all_cities:
         my_cities = json.load(all_cities)
-    with open('rules.txt', encoding='UTF-8', mode='r') as rules:
+    with open('citybot_by_rid/static/txt/rules.txt', encoding='UTF-8', mode='r') as rules:
         rules = ''.join(rules.readlines())
-    with open('phrases.json', encoding='UTF-8', mode='r') as templates:
+    with open('citybot_by_rid/static/json/phrases.json', encoding='UTF-8', mode='r') as templates:
         phrases = json.load(templates)
 
     vk_session = vk_api.VkApi(token=os.environ.get('token'))
